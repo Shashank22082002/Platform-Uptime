@@ -1,0 +1,687 @@
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+
+const COLORS = ['#4caf50', '#f44336'];
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
+const BASE_URL = 'http://localhost:5000'
+
+// Function to determine cell background color based on uptime percentage
+const getCellBackgroundColor = (value) => {
+  if (value === null) return '#f4f4f5'; // Soft neutral gray with a hint of warmth
+
+  if (value >= 99.99) return '#e6f3ea'; // Soft sage green
+  if (value >= 99.9) return '#e0f2f1'; // Mint seafoam
+  if (value >= 99.5) return '#fff5e6'; // Soft peach
+  if (value >= 99.0) return '#f0f4f8'; // Pale blue-gray
+  if (value >= 98.0) return '#faf5e6'; // Light buttercream
+  if (value >= 95.0) return '#fff0e6'; // Soft coral
+  return '#ffebee'; // Soft pastel red
+};
+
+const containerStyle = {
+  backgroundColor: 'white',
+  padding: '24px',
+  borderRadius: '8px',
+  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+  margin: '20px auto',
+  maxWidth: '80%'
+};
+
+const headerStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: '24px',
+  flexWrap: 'wrap'
+};
+
+const titleStyle = {
+  fontSize: '28px',
+  fontWeight: 'bold',
+  margin: '0',
+  background: 'linear-gradient(90deg, #00bcd4 0%, #4caf50 100%)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent'
+};
+
+const heatmapContainerStyle = {
+  overflowX: 'auto',
+  marginBottom: '32px'
+};
+
+const heatmapTableStyle = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  fontSize: '14px'
+};
+
+const heatmapHeaderStyle = {
+  padding: '12px',
+  textAlign: 'center',
+  fontWeight: '600',
+  backgroundColor: '#f5f5f5',
+  position: 'relative'
+};
+
+const heatmapCellStyle = (value) => ({
+  padding: '12px',
+  textAlign: 'center',
+  fontWeight: value >= 99.99 ? '600' : '400',
+  backgroundColor: getCellBackgroundColor(value),
+  cursor: value !== null ? 'pointer' : 'default',
+  transition: 'all 0.2s ease',
+  position: 'relative'
+});
+
+const statContainerStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+  gap: '16px',
+  marginBottom: '32px'
+};
+
+const statCardStyle = (color) => ({
+  backgroundColor: color === 'blue' ? '#e3f2fd' : color === 'green' ? '#e8f5e9' : '#ffebee',
+  padding: '16px',
+  borderRadius: '8px',
+  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+});
+
+const statTitleStyle = {
+  fontSize: '18px',
+  fontWeight: '600',
+  textAlign: 'center',
+  marginBottom: '8px'
+};
+
+const statValueStyle = (color) => ({
+  fontSize: '24px',
+  fontWeight: 'bold',
+  textAlign: 'center',
+  color: color === 'blue' ? '#1976d2' : color === 'green' ? '#388e3c' : '#d32f2f'
+});
+
+const sectionTitleStyle = {
+  fontSize: '22px', 
+  fontWeight: '600',
+  marginBottom: '16px'
+};
+
+const chartContainerStyle = {
+  height: '400px',
+  marginBottom: '32px'
+};
+
+const tableStyle = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  marginTop: '16px'
+};
+
+const thStyle = {
+  backgroundColor: '#f5f5f5',
+  padding: '10px',
+  textAlign: 'left',
+  borderBottom: '1px solid #ddd',
+  cursor: 'pointer'
+};
+
+const tdStyle = {
+  padding: '10px',
+  borderBottom: '1px solid #ddd'
+};
+
+const buttonStyle = {
+  backgroundColor: '#f5f5f5',
+  border: 'none',
+  padding: '8px 16px',
+  borderRadius: '4px',
+  marginLeft: '8px',
+  cursor: 'pointer'
+};
+
+const tooltipStyle = {
+  position: 'absolute',
+  top: '100%',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  color: 'white',
+  padding: '4px 8px',
+  borderRadius: '4px',
+  fontSize: '12px',
+  zIndex: 1000,
+  whiteSpace: 'nowrap'
+};
+
+const fetchStats = async (config_id) => {
+  const url = `${BASE_URL}/stats?config=${encodeURIComponent(config_id)}`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+    
+    const resJson = await response.json();
+
+    if (!resJson.success) {
+      throw new Error(resJson.error);
+    }
+
+    // Group data as uptimeTable: { [env]: { [month]: [uptime, 0, incidents] } }
+    const uptimeTable = {};
+    if (Array.isArray(resJson.data)) {
+      resJson.data.forEach(item => {
+        const env = item.env;
+        const month = item.month;
+        const uptime = item.uptime != null ? Math.round(item.uptime * 10000) / 100 : null; // Convert to percentage, 2 decimals
+        const incidents = item.red_cells != null ? item.red_cells : 0;
+        const max_total = item.max_total_cells;
+
+        if (!uptimeTable[env]) uptimeTable[env] = {};
+        uptimeTable[env][month] = { "uptime": uptime, "red": incidents, "green": max_total - incidents, "total": max_total };
+      });
+    }
+
+    return uptimeTable;
+  } catch (error) {
+    console.error('Failed to fetch stats:', error);
+    return null;
+  }
+};
+
+const UptimeDashboard = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedEnv, setSelectedEnv] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [showDrilldown, setshowDrilldown] = useState(false);
+  const [drilldownData, setDrilldownData] = useState([]);
+  const [sortedDrilldown, setSortedDrilldown] = useState([]);
+  const [sortConfig, setSortConfig] = useState({ key: 'count', direction: 'desc' });
+  const [heatmapData, setHeatmapData] = useState([]);
+  const [heatmapMonths, setHeatmapMonths] = useState([]);
+
+  // Fetching data
+  useEffect(() => {
+    fetch('http://localhost:5000/data')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        return response.json();
+      })
+      .then(data => {
+        setData(data);
+        setLoading(false);
+        // Default to first environment
+        if (data.uptime_table && Object.keys(data.uptime_table).length > 0) {
+          setSelectedEnv(Object.keys(data.uptime_table)[0]);
+        }
+        
+        // Process heatmap data
+        processHeatmapData(data.uptime_table);
+      })
+      .catch(error => {
+        setError(error.message);
+        setLoading(false);
+      });
+  }, []);
+
+  // Setting default drilldown
+  useEffect(() => {
+    if (selectedEnv && selectedMonth && data && data.drilldown && data.drilldown[selectedEnv] && data.drilldown[selectedEnv][selectedMonth]) {
+      setDrilldownData(data.drilldown[selectedEnv][selectedMonth]);
+      setSortedDrilldown([...data.drilldown[selectedEnv][selectedMonth]]);
+    } else {
+      setDrilldownData([]);
+      setSortedDrilldown([]);
+    }
+  }, [selectedEnv, selectedMonth, data]);
+
+  // Sorting drilldown data
+  useEffect(() => {
+    if (drilldownData.length > 0) {
+      const sortedData = [...drilldownData];
+      sortedData.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+      setSortedDrilldown(sortedData);
+    }
+  }, [sortConfig, drilldownData]);
+
+  // Processing heatmap data
+  const processHeatmapData = (uptimeTable) => {
+    if (!uptimeTable) return;
+
+    // Collect all unique months across all environments
+    const allMonths = new Set();
+    Object.values(uptimeTable).forEach(envData => {
+      Object.keys(envData).forEach(month => allMonths.add(month));
+    });
+
+    // Sort months chronologically
+    const sortedMonths = Array.from(allMonths).sort((a, b) => {
+      const [aMonth, aYear] = a.split('/');
+      const [bMonth, bYear] = b.split('/');
+      
+      if (aYear !== bYear) return parseInt(aYear) - parseInt(bYear);
+      return MONTHS.indexOf(aMonth) - MONTHS.indexOf(bMonth);
+    });
+    setHeatmapMonths(sortedMonths);
+
+    const sortedEnvs = Object.keys(uptimeTable).sort((a, b) => {
+      const getSortKey = (env) => {
+        if (!env.startsWith('prod')) return [0, env]; // Non-prod envs first, sorted alphabetically
+        if (env === 'prod0') return [1, 0];
+        if (env === 'prod') return [1, 1];
+    
+        const match = env.match(/^prod(\d+)$/);
+        if (match) return [1, parseInt(match[1], 10)];
+    
+        return [2, env]; // fallback
+      };
+    
+      const [aGroup, aValue] = getSortKey(a);
+      const [bGroup, bValue] = getSortKey(b);
+    
+      if (aGroup !== bGroup) return aGroup - bGroup;
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return aValue.localeCompare(bValue);
+      }
+      return aValue - bValue;
+    });
+    
+    
+    // Create heatmap data
+    const heatmap = sortedEnvs.map(env => {
+      const envRow = { env };
+      
+      sortedMonths.forEach(month => {
+        const envData = uptimeTable[env][month];
+        if (envData) {
+          const totalUptime = (envData[0] || 0) + (envData[1] || 0);
+          const totalIncidents = envData[2] || 0;
+          const total = totalUptime + totalIncidents;
+    
+          const uptimePercentage = total ? ((totalUptime / total) * 100).toFixed(2) : 100;
+          envRow[month] = parseFloat(uptimePercentage);
+        } else {
+          envRow[month] = null; // No data for this month
+        }
+      });
+    
+      return envRow;
+    });
+    
+    setHeatmapData(heatmap);
+
+  };
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleHeatmapCellClick = (env, month) => {
+    setSelectedEnv(env);
+    setSelectedMonth(month);
+    setshowDrilldown(true);
+    
+    // Scroll to the drilldown section
+    setTimeout(() => {
+      const drilldownElement = document.getElementById('drilldown-section');
+      if (drilldownElement) {
+        drilldownElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+  };
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}><div style={{ fontSize: '24px' }}>Loading...</div></div>;
+  if (error) return <div style={{ backgroundColor: '#ffebee', padding: '16px', borderRadius: '4px', color: '#d32f2f' }}>Error: {error}</div>;
+  if (!data) return <div style={{ backgroundColor: '#fff9c4', padding: '16px', borderRadius: '4px', color: '#f57f17' }}>No data available</div>;
+
+  const prepareChartData = () => {
+    const chartData = [];
+    
+    if (data.uptime_table && selectedEnv && data.uptime_table[selectedEnv]) {
+      const envData = data.uptime_table[selectedEnv];
+      
+      Object.entries(envData).forEach(([monthYear, uptimeValues]) => {
+        const [month, year] = monthYear.split('/');
+        
+        const totalIncidents = uptimeValues[2] || 0;
+        const totalUptime = uptimeValues[0] || 0;
+        const total = totalIncidents + totalUptime;
+        
+        chartData.push({
+          name: `${month}/${year}`,
+          monthYear: monthYear,
+          uptime: totalUptime,
+          incidents: totalIncidents,
+          uptimePercentage: total ? ((totalUptime / total) * 100).toFixed(2) : 100,
+          total: total
+        });
+      });
+      
+      chartData.sort((a, b) => {
+        const [aMonth, aYear] = a.monthYear.split('/');
+        const [bMonth, bYear] = b.monthYear.split('/');
+        
+        if (aYear !== bYear) return parseInt(aYear) - parseInt(bYear);
+        return MONTHS.indexOf(aMonth) - MONTHS.indexOf(bMonth);
+      });
+    }
+    
+    return chartData;
+  };
+
+  const chartData = prepareChartData();
+
+  const handleBarClick = (data) => {
+    setSelectedMonth(data.monthYear);
+    setshowDrilldown(true);
+  };
+
+  const envOptions = Object.keys(data.uptime_table || {}).map(env => (
+    <option key={env} value={env}>{env}</option>
+  ));
+
+  const pieData = selectedMonth && data.uptime_table && selectedEnv && data.uptime_table[selectedEnv][selectedMonth] ? [
+    { name: 'Uptime', value: data.uptime_table[selectedEnv][selectedMonth][0] || 0 },
+    { name: 'Incidents', value: data.uptime_table[selectedEnv][selectedMonth][2] || 0 }
+  ] : [];
+
+  const totalUptime = chartData.reduce((acc, curr) => acc + curr.uptime, 0);
+  const totalIncidents = chartData.reduce((acc, curr) => acc + curr.incidents, 0);
+  const averageUptimePercentage = chartData.length > 0 ? 
+    ((totalUptime / (totalUptime + totalIncidents)) * 100).toFixed(2) : 0;
+
+  // Format month for better display in the header
+  const formatMonth = (monthStr) => {
+    const [month, year] = monthStr.split('/');
+    // Convert year from full format (e.g., 2024) to short format (e.g., '24)
+    const shortYear = year.slice(2);
+    return `${month}/${shortYear}`;
+  };
+
+  return (
+    <div style={containerStyle}>
+      <div style={headerStyle}>
+        <h1 style={titleStyle}>Platform Uptime Dashboard</h1>
+      </div>
+
+      <div style={heatmapContainerStyle}>
+        <h2 style={sectionTitleStyle}>Platform Uptime (%)</h2>
+        <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+          Click on any cell to see detailed incident information
+        </p>
+        
+        <div style={heatmapContainerStyle}>
+          <table style={heatmapTableStyle}>
+            <thead>
+              <tr>
+                <th style={{ ...heatmapHeaderStyle, textAlign: 'left', minWidth: '120px' }}>ENV</th>
+                {heatmapMonths.map(month => (
+                  <th key={month} style={heatmapHeaderStyle}>
+                    <div>{formatMonth(month)}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {heatmapData.map(row => (
+                <tr key={row.env}>
+                  <td style={{ ...heatmapCellStyle(null), textAlign: 'left', fontWeight: '600' }}>{row.env}</td>
+                  {heatmapMonths.map(month => (
+                    <td 
+                      key={`${row.env}-${month}`} 
+                      style={heatmapCellStyle(row[month])}
+                      onClick={() => row[month] !== null && handleHeatmapCellClick(row.env, month)}
+                      title={row[month] !== null ? `${row.env} - ${month}: ${row[month]}%` : 'No data'}
+                    >
+                      {row[month] !== null ? (row[month] === 100 ? '100' : row[month]) : '-'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#e8f5e9', marginRight: '8px' }}></div>
+            <span>100%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#f1f8e9', marginRight: '8px' }}></div>
+            <span>≥99.9%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#fffde7', marginRight: '8px' }}></div>
+            <span>≥99.5%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#fff8e1', marginRight: '8px' }}></div>
+            <span>≥99.0%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#fff3e0', marginRight: '8px' }}></div>
+            <span>≥98.0%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#fbe9e7', marginRight: '8px' }}></div>
+            <span>≥95.0%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '20px', height: '20px', backgroundColor: '#ffebee', marginRight: '8px' }}></div>
+            <span>&lt;95.0%</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={statContainerStyle}>
+        <div style={statCardStyle('blue')}>
+          <h2 style={statTitleStyle}>Total Months</h2>
+          <p style={statValueStyle('blue')}>{chartData.length}</p>
+        </div>
+        <div style={statCardStyle('green')}>
+          <h2 style={statTitleStyle}>Average Uptime</h2>
+          <p style={statValueStyle('green')}>{averageUptimePercentage}%</p>
+        </div>
+        <div style={statCardStyle('red')}>
+          <h2 style={statTitleStyle}>Total Incidents</h2>
+          <p style={statValueStyle('red')}>{totalIncidents}</p>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: '32px' }}>
+        <h2 style={sectionTitleStyle}>Monthly Uptime Statistics for {selectedEnv}</h2>
+        <div style={chartContainerStyle}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+              barSize={20}
+              onClick={(e) => e && e.activePayload && handleBarClick(e.activePayload[0].payload)}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis 
+                dataKey="name" 
+                angle={-45} 
+                textAnchor="end" 
+                height={70} 
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis />
+              <Tooltip 
+                formatter={(value, name) => {
+                  if (name === 'uptimePercentage') return `${value}%`;
+                  return value;
+                }}
+                labelFormatter={(label) => `Month: ${label}`}
+              />
+              <Legend />
+              <Bar 
+                dataKey="uptime" 
+                fill="#4caf50" 
+                name="Uptime"
+                stackId="a"
+              />
+              <Bar 
+                dataKey="incidents" 
+                fill="#f44336" 
+                name="Incidents"
+                stackId="a"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <p style={{ fontSize: '14px', color: '#666', textAlign: 'center' }}>Click on a bar to view detailed incident information for that month</p>
+      </div>
+
+      {selectedMonth && (
+        <div id="drilldown-section" style={{ marginBottom: '32px' }}>
+          <h2 style={sectionTitleStyle}>
+            Uptime for {selectedEnv} - {selectedMonth}
+            <button 
+              style={buttonStyle}
+              onClick={() => setshowDrilldown(!showDrilldown)}
+            >
+              {showDrilldown ? 'Hide Details' : 'Show Details'}
+            </button>
+          </h2>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+            <div style={{ height: '300px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                    nameKey="name"
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => value} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <div>
+              <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: '500', marginBottom: '12px' }}>Summary</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div style={{ backgroundColor: '#e8f5e9', padding: '12px', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '14px', color: '#666' }}>Total Uptime</p>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#388e3c' }}>
+                      {pieData[0]?.value || 0}
+                    </p>
+                  </div>
+                  <div style={{ backgroundColor: '#ffebee', padding: '12px', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '14px', color: '#666' }}>Total Incidents</p>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#d32f2f' }}>
+                      {pieData[1]?.value || 0}
+                    </p>
+                  </div>
+                  <div style={{ backgroundColor: '#e3f2fd', padding: '12px', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '14px', color: '#666' }}>Uptime Percentage</p>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#1976d2' }}>
+                      {pieData.length > 0 ? 
+                        ((pieData[0].value / (pieData[0].value + pieData[1].value)) * 100).toFixed(2) : 0}%
+                    </p>
+                  </div>
+                  <div style={{ backgroundColor: '#f3e5f5', padding: '12px', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '14px', color: '#666' }}>Total Records</p>
+                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#7b1fa2' }}>
+                      {pieData.reduce((sum, item) => sum + item.value, 0)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {showDrilldown && (
+            <div style={{ marginTop: '24px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '12px' }}>Incident Details</h3>
+              {sortedDrilldown.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th 
+                          style={thStyle}
+                          onClick={() => handleSort('database')}
+                        >
+                          Database
+                          {sortConfig.key === 'database' && (
+                            <span>{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                          )}
+                        </th>
+                        <th 
+                          style={thStyle}
+                          onClick={() => handleSort('cluster')}
+                        >
+                          Cluster
+                          {sortConfig.key === 'cluster' && (
+                            <span>{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                          )}
+                        </th>
+                        <th 
+                          style={thStyle}
+                          onClick={() => handleSort('count')}
+                        >
+                          Incident Count
+                          {sortConfig.key === 'count' && (
+                            <span>{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                          )}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedDrilldown.map((item, index) => (
+                        <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#f9f9f9' : 'white' }}>
+                          <td style={tdStyle}>{item.database}</td>
+                          <td style={tdStyle}>{item.cluster}</td>
+                          <td style={{...tdStyle, textAlign: 'right'}}>{item.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p style={{ color: '#666' }}>No incident details available for this month.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default UptimeDashboard;
